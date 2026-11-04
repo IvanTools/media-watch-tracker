@@ -13,7 +13,7 @@
     --bg: #101218; --card: #191c24; --card2: #20242e; --fg: #ececf1; --dim: #9a9fae;
     --border: #2b303c; --accent: #7c6cff;
     --book: #f0a640; --movie: #ff5a6e; --tv: #3fc1c9; --other: #b48cff;
-    --want: #7c6cff; --prog: #f0c040; --done: #46c37b;
+    --want: #7c6cff; --prog: #f0c040; --ongoing: #3fa7ff; --done: #46c37b;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; }
@@ -81,6 +81,7 @@
   .st { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
   .st.want { background: rgba(124,108,255,.18); color: var(--want); }
   .st.progress { background: rgba(240,192,64,.18); color: var(--prog); }
+  .st.ongoing { background: rgba(63,167,255,.18); color: var(--ongoing); }
   .st.done { background: rgba(70,195,123,.18); color: var(--done); }
   .stars { color: var(--prog); letter-spacing: 1px; }
   .acts { display: flex; gap: 4px; align-items: center; }
@@ -125,7 +126,7 @@
     <button class="primary" id="addBtn">+ Add</button>
   </header>
 
-  <p class="intro">One shelf for everything you want to get to: books, movies, TV, and anything else. Add a title, mark it Want, In progress, or Done, and Up Next shows what you're in the middle of followed by your ranked queue. Nothing plays here; it's just your list.</p>
+  <p class="intro">One shelf for everything you want to get to: books, movies, TV, and anything else. Add a title, mark it Want, In progress, Ongoing (caught up and waiting for more), or Done, and Up Next shows what you're in the middle of followed by your ranked queue. Nothing plays here; it's just your list.</p>
 
   <form id="quick" autocomplete="off">
     <input id="qTitle" placeholder="Quick add a title…" enterkeyhint="done">
@@ -141,6 +142,7 @@
     <button class="tab on" data-v="next">Up Next<span class="n"></span></button>
     <button class="tab" data-v="progress">In Progress<span class="n"></span></button>
     <button class="tab" data-v="want">Want<span class="n"></span></button>
+    <button class="tab" data-v="ongoing">Ongoing<span class="n"></span></button>
     <button class="tab" data-v="done">Done<span class="n"></span></button>
     <button class="tab" data-v="all">All<span class="n"></span></button>
   </nav>
@@ -175,15 +177,17 @@
       </div>
     </div>
     <div class="field" id="kindField"><label for="fKind">What kind?</label><input id="fKind" placeholder="Manga, podcast, game…"></div>
-    <div class="field"><label>Status</label>
+    <div class="field"><label>Status <span id="stHint" style="opacity:.8"></span></label>
       <div class="seg" id="fStatus">
         <button type="button" data-v="want">Want</button>
         <button type="button" data-v="progress">In progress</button>
+        <button type="button" data-v="ongoing">Ongoing</button>
         <button type="button" data-v="done">Done</button>
       </div>
     </div>
     <div class="two" id="twoRow">
       <div class="field" id="seasonField"><label for="fSeason">Season</label><input id="fSeason" inputmode="numeric" maxlength="3" placeholder="e.g. 2"></div>
+      <div class="field" id="episodeField"><label for="fEpisode">Episode</label><input id="fEpisode" inputmode="numeric" maxlength="4" placeholder="e.g. 5"></div>
       <div class="field"><label for="fYear">Year</label><input id="fYear" inputmode="numeric" maxlength="4"></div>
     </div>
     <div class="field" id="progField"><label for="fProg" id="fProgL">Where you are</label><input id="fProg"></div>
@@ -215,10 +219,12 @@
   const KEY = 'wtw.items.v1', UI = 'wtw.ui.v1';
   const TYPES = { book: 'Book', movie: 'Movie', tv: 'TV', other: 'Other' };
   const PROG = { book: 'Page or chapter', movie: 'Timestamp', tv: 'Episode', other: 'Where you left off' };
-  const STATUS = { want: 'Want', progress: 'In progress', done: 'Done' };
+  const STATUS = { want: 'Want', progress: 'In progress', ongoing: 'Ongoing', done: 'Done' };
+  const HINT = { want: '', progress: '', ongoing: '· caught up, waiting for more', done: '' };
   const $ = s => document.querySelector(s);
 
   let items = load(KEY, []);
+  items.forEach(i => { if (i.type === 'tv' && i.progress && !i.episode) { i.episode = String(i.progress).replace(/^\D+/, ''); i.progress = ''; } });
   let ui = Object.assign({ view: 'next', type: 'all' }, load(UI, {}));
   let editing = null, form = {}, undo = null, toastTimer = null;
 
@@ -234,7 +240,7 @@
   const byRank = (a, b) => (a.rank || 0) - (b.rank || 0);
 
   function add(data) {
-    const it = Object.assign({ id: uid(), title: '', type: 'movie', kind: '', status: 'want', season: '', year: '', progress: '', rating: 0, where: '', notes: '',
+    const it = Object.assign({ id: uid(), title: '', type: 'movie', kind: '', status: 'want', season: '', episode: '', year: '', progress: '', rating: 0, where: '', notes: '',
       added: now(), started: null, finished: null, rank: maxRank() + 1 }, data);
     stamp(it, it.status);
     items.push(it); save(); render();
@@ -261,8 +267,9 @@
     const vis = visible();
     const prog = vis.filter(i => i.status === 'progress').sort(byRank);
     const want = vis.filter(i => i.status === 'want').sort(byRank);
+    const ongoing = vis.filter(i => i.status === 'ongoing').sort(byRank);
     const done = vis.filter(i => i.status === 'done').sort((a, b) => (b.finished || 0) - (a.finished || 0));
-    const counts = { next: prog.length + want.length, progress: prog.length, want: want.length, done: done.length, all: vis.length };
+    const counts = { next: prog.length + want.length, progress: prog.length, want: want.length, ongoing: ongoing.length, done: done.length, all: vis.length };
     document.querySelectorAll('.tab').forEach(t => { t.classList.toggle('on', t.dataset.v === ui.view); t.querySelector('.n').textContent = counts[t.dataset.v] || ''; });
     document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.t === ui.type));
 
@@ -272,15 +279,16 @@
     } else if (ui.view === 'next') {
       if (prog.length) html += `<div class="section-h">Continue</div><div class="list">${prog.map(i => row(i)).join('')}</div>`;
       if (want.length) html += `<div class="section-h">Queue</div><div class="list">${want.map((i, n) => row(i, n + 1, want)).join('')}</div>`;
+      if (ongoing.length) html += `<div class="section-h">Ongoing · waiting for more</div><div class="list">${ongoing.map(i => row(i)).join('')}</div>`;
       if (!html) html = `<div class="empty">Nothing queued${ui.type !== 'all' ? ' here' : ''}. Add something you want to get to.</div>`;
     } else if (ui.view === 'all') {
-      const sections = [['In progress', prog], ['Want', want], ['Done', done]].filter(s => s[1].length);
+      const sections = [['In progress', prog], ['Want', want], ['Ongoing', ongoing], ['Done', done]].filter(s => s[1].length);
       html = sections.map(([h, l]) => `<div class="section-h">${h}</div><div class="list">${l.map(i => row(i, 0, null, true)).join('')}</div>`).join('')
         || `<div class="empty">No matches.</div>`;
     } else {
-      const l = ui.view === 'progress' ? prog : ui.view === 'want' ? want : done;
+      const l = ui.view === 'progress' ? prog : ui.view === 'want' ? want : ui.view === 'ongoing' ? ongoing : done;
       html = l.length ? `<div class="list">${l.map((i, n) => row(i, ui.view === 'want' ? n + 1 : 0, ui.view === 'want' ? want : null)).join('')}</div>`
-        : `<div class="empty">Nothing ${ui.view === 'done' ? 'finished' : ui.view === 'progress' ? 'in progress' : 'on your want list'} yet.</div>`;
+        : `<div class="empty">Nothing ${ui.view === 'done' ? 'finished' : ui.view === 'progress' ? 'in progress' : ui.view === 'ongoing' ? 'ongoing' : 'on your want list'} yet.</div>`;
     }
     $('#main').innerHTML = html;
   }
@@ -288,9 +296,9 @@
   function row(i, rank = 0, list = null, showStatus = false) {
     const meta = [`<span class="badge">${esc(i.type === 'other' && i.kind ? i.kind : TYPES[i.type])}</span>`];
     if (showStatus || ui.view === 'all') meta.push(`<span class="st ${i.status}">${STATUS[i.status]}</span>`);
-    if (i.type === 'tv' && i.season) meta.push(`Season ${esc(i.season)}`);
+    if (i.type === 'tv' && (i.season || i.episode)) meta.push([i.season ? `Season ${esc(i.season)}` : '', i.episode ? `Ep ${esc(i.episode)}` : ''].filter(Boolean).join(', '));
     if (i.year) meta.push(esc(i.year));
-    if (i.status === 'progress' && i.progress) meta.push('at ' + esc(i.progress));
+    if (i.type !== 'tv' && (i.status === 'progress' || i.status === 'ongoing') && i.progress) meta.push('at ' + esc(i.progress));
     if (i.status === 'done' && i.rating) meta.push(`<span class="stars">${'★'.repeat(i.rating)}</span>`);
     if (i.status === 'done' && i.finished) meta.push(new Date(i.finished).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }));
     if (i.where && i.status !== 'done') meta.push(esc(i.where));
@@ -301,8 +309,11 @@
       acts += `<button class="icon ghost" data-a="top" data-id="${i.id}" ${idx === 0 ? 'disabled style="opacity:.3"' : ''} aria-label="Move to top">⤒</button>`;
     }
     if (i.status === 'want') acts += `<button class="next-btn" data-a="start" data-id="${i.id}">Start</button>`;
-    else if (i.status === 'progress') acts += `<button class="next-btn" data-a="finish" data-id="${i.id}">Done ✓</button>`;
-    else acts += `<button class="next-btn ghost" data-a="again" data-id="${i.id}">Again</button>`;
+    else if (i.status === 'progress') {
+      if (i.type === 'tv') acts += `<button class="next-btn ghost" data-a="ep" data-id="${i.id}" aria-label="Next episode">+1 ep</button>`;
+      acts += `<button class="next-btn" data-a="finish" data-id="${i.id}">Done ✓</button>`;
+    }
+    else acts += `<button class="next-btn ghost" data-a="resume" data-id="${i.id}">Resume</button>`;
     return `<div class="item" data-type="${i.type}">
       ${rank ? `<div class="rank">${rank}</div>` : ''}
       <div class="body" data-a="edit" data-id="${i.id}"><div class="title">${esc(i.title)}</div><div class="meta">${meta.join('<span>·</span>')}</div></div>
@@ -317,7 +328,12 @@
     if (a === 'edit') return openSheet(it);
     if (a === 'start') return setStatus(it, 'progress');
     if (a === 'finish') { setStatus(it, 'done'); return openSheet(it, true); }
-    if (a === 'again') { it.rank = maxRank() + 1; return setStatus(it, 'want'); }
+    if (a === 'resume') return setStatus(it, 'progress');
+    if (a === 'ep') {
+      const prev = JSON.stringify(items);
+      it.episode = String((parseInt(it.episode, 10) || 0) + 1); save(); render();
+      return toast(`${it.title}: ${it.season ? 'S' + it.season + ' ' : ''}Ep ${it.episode}`, prev);
+    }
     if (a === 'up' || a === 'top') {
       const list = items.filter(x => x.status === it.status).sort(byRank);
       // Only reorder among what's visible (respecting filters) so "up" moves past the item you see above.
@@ -350,7 +366,7 @@
     form = it ? Object.assign({}, it) : { type: $('#qType').value, status: 'want', rating: 0 };
     $('#sheetH').textContent = it ? (rateNow ? `Finished! Rate ${it.title}?` : 'Edit') : 'Add a title';
     $('#fTitle').value = form.title || '';
-    $('#fSeason').value = form.season || ''; $('#fKind').value = form.kind || ''; $('#fYear').value = form.year || '';
+    $('#fSeason').value = form.season || ''; $('#fEpisode').value = form.episode || ''; $('#fKind').value = form.kind || ''; $('#fYear').value = form.year || '';
     $('#fProg').value = form.progress || ''; $('#fWhere').value = form.where || ''; $('#fNotes').value = form.notes || '';
     $('#delBtn').classList.toggle('hidden', !it);
     syncSheet();
@@ -361,10 +377,12 @@
     document.querySelectorAll('#fType button').forEach(b => b.classList.toggle('on', b.dataset.v === form.type));
     document.querySelectorAll('#fStatus button').forEach(b => b.classList.toggle('on', b.dataset.v === form.status));
     $('#seasonField').classList.toggle('hidden', form.type !== 'tv');
-    $('#twoRow').style.gridTemplateColumns = form.type === 'tv' ? '1fr 1fr' : '1fr';
+    $('#episodeField').classList.toggle('hidden', form.type !== 'tv');
+    $('#twoRow').style.gridTemplateColumns = form.type === 'tv' ? '1fr 1fr 1fr' : '1fr';
+    $('#stHint').textContent = HINT[form.status] || '';
     $('#kindField').classList.toggle('hidden', form.type !== 'other');
-    $('#fProgL').textContent = form.type === 'tv' ? 'Episode (optional)' : 'Where you are · ' + PROG[form.type];
-    $('#progField').classList.toggle('hidden', form.status !== 'progress');
+    $('#fProgL').textContent = 'Where you are · ' + PROG[form.type];
+    $('#progField').classList.toggle('hidden', form.type === 'tv' || !(form.status === 'progress' || form.status === 'ongoing'));
     $('#rateField').classList.toggle('hidden', form.status !== 'done');
     $('#fRate').innerHTML = [1, 2, 3, 4, 5].map(n => `<button type="button" data-r="${n}" class="${n <= (form.rating || 0) ? 'on' : ''}">★</button>`).join('');
   }
@@ -378,14 +396,16 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#veil').classList.contains('hidden')) closeSheet(); });
   $('#sheet').addEventListener('submit', e => {
     e.preventDefault();
-    const data = { title: $('#fTitle').value.trim(), type: form.type, status: form.status, season: form.type === 'tv' ? $('#fSeason').value.trim() : '', kind: form.type === 'other' ? ($('#fKind').value.trim() || 'Other') : '',
+    const data = { title: $('#fTitle').value.trim(), type: form.type, status: form.status, season: form.type === 'tv' ? $('#fSeason').value.trim() : '', episode: form.type === 'tv' ? $('#fEpisode').value.trim() : '', kind: form.type === 'other' ? ($('#fKind').value.trim() || 'Other') : '',
       year: $('#fYear').value.trim(), progress: $('#fProg').value.trim(), where: $('#fWhere').value.trim(),
       notes: $('#fNotes').value.trim(), rating: form.status === 'done' ? (form.rating || 0) : (editing ? editing.rating : 0) };
     if (!data.title) return $('#fTitle').focus();
     if (editing) {
-      if (editing.status === 'done' && data.status === 'want') editing.rank = maxRank() + 1;
+      const prev = JSON.stringify(items), was = editing.status;
+      if (was !== data.status && data.status !== 'done') editing.rank = maxRank() + 1;
       Object.assign(editing, data); stamp(editing, data.status); save(); render();
-    } else add(data);
+      toast(was !== data.status ? `${data.title} → ${STATUS[data.status]}` : `Saved ${data.title}`, prev);
+    } else { add(data); toast(`Added ${data.title}`); }
     closeSheet();
   });
   $('#delBtn').addEventListener('click', () => {
