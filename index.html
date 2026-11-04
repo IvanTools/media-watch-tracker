@@ -296,6 +296,8 @@
       <div class="lbl" style="margin-top:8px">Add from your shelf</div>
       <input type="search" id="wFind" placeholder="Search other titles">
       <div class="wlist" id="wFound" style="margin-top:4px"></div>
+      <div class="lbl" style="margin-top:8px">Add your own</div>
+      <form class="wrow" id="wExtraF"><input type="text" id="wExtra" placeholder="Anything not on your shelf" maxlength="120"><button type="submit" class="sm primary">Add</button></form>
     </div>
     <div class="wside hidden" id="wCustom">
       <div class="wrow" style="margin-bottom:6px">
@@ -594,7 +596,8 @@
   // ---------- Wheel ----------
   const WKEY = 'wtw.wheels.v1', WUI = 'wtw.wheelui.v1';
   let wheels = load(WKEY, []);
-  let wui = Object.assign({ mode: 'shelf', statuses: ['want'], types: ['book', 'movie', 'tv', 'other'], wheelId: null, on: [], off: [] }, load(WUI, {}));
+  let wui = Object.assign({ mode: 'shelf', statuses: ['want'], types: ['book', 'movie', 'tv', 'other'], wheelId: null, on: [], off: [], extra: [] }, load(WUI, {}));
+  if (!Array.isArray(wui.extra)) wui.extra = [];
   if (!Array.isArray(wui.on)) wui.on = []; if (!Array.isArray(wui.off)) wui.off = [];
   let wExcluded = new Set(), wAngle = 0, wSpinning = false, wEntries = [];
   const WCOLORS = ['#7c6cff', '#ff5a6e', '#3fc1c9', '#f0a640', '#46c37b', '#b48cff', '#3fa7ff', '#ff8a4c', '#e05fb0', '#9bc53d'];
@@ -610,19 +613,24 @@
   const wMatches = i => wui.statuses.includes(i.status) && wui.types.includes(i.type);
   function wListed() { return items.filter(i => wMatches(i) || wui.on.includes(i.id)); }
   function wEntriesNow() {
-    if (wui.mode === 'shelf') return wListed().filter(i => !wui.off.includes(i.id)).map(i => ({ label: i.title, id: i.id, type: i.type }));
+    if (wui.mode === 'shelf') return wListed().filter(i => !wui.off.includes(i.id)).map(i => ({ label: i.title, id: i.id, type: i.type }))
+      .concat(wui.extra.filter(x => !wui.off.includes('x|' + x)).map(x => ({ label: x, xkey: 'x|' + x })));
     return $('#wList').value.split('\n').map(s => s.trim()).filter(Boolean)
       .map((label, n) => ({ label, key: n + '|' + label })).filter(e => !wExcluded.has(e.key));
   }
   const TCOL = { book: 'var(--book)', movie: 'var(--movie)', tv: 'var(--tv)', other: 'var(--other)' };
   function wRenderShelfList() {
     const listed = wListed();
-    const onCount = listed.filter(i => !wui.off.includes(i.id)).length;
-    $('#wOnL').textContent = `On the wheel (${onCount}/${listed.length})`;
-    $('#wItems').innerHTML = listed.length ? listed.map(i => {
+    const onCount = listed.filter(i => !wui.off.includes(i.id)).length + wui.extra.filter(x => !wui.off.includes('x|' + x)).length;
+    $('#wOnL').textContent = `On the wheel (${onCount}/${listed.length + wui.extra.length})`;
+    const rows = listed.map(i => {
       const off = wui.off.includes(i.id);
       return `<label class="${off ? 'off' : ''}"><input type="checkbox" data-id="${i.id}" ${off ? '' : 'checked'}><span class="dot" style="background:${TCOL[i.type]}"></span><span class="t">${esc(i.title)}</span></label>`;
-    }).join('') : `<div class="wempty">Pick a status and type above, or add titles below.</div>`;
+    }).concat(wui.extra.map((x, n) => {
+      const off = wui.off.includes('x|' + x);
+      return `<label class="${off ? 'off' : ''}"><input type="checkbox" data-id="${esc('x|' + x)}" ${off ? '' : 'checked'}><span class="dot" style="background:var(--dim)"></span><span class="t">${esc(x)}</span><span class="add" data-delx="${n}" title="Delete">✕</span></label>`;
+    }));
+    $('#wItems').innerHTML = rows.length ? rows.join('') : `<div class="wempty">Pick a status and type above, or add titles below.</div>`;
     const q = ($('#wFind').value || '').trim().toLowerCase();
     const others = items.filter(i => !listed.includes(i) && (!q || i.title.toLowerCase().includes(q)));
     $('#wFound').innerHTML = others.length ? others.slice(0, 50).map(i =>
@@ -767,14 +775,14 @@
     if (it && it.status === 'want') acts += `<button type="button" class="primary" id="wStart">Start it</button>`;
     $('#winActs').innerHTML = acts;
     $('#wresult').innerHTML = `<span style="color:var(--dim);font-size:14px">Last pick: <b style="color:${color}">${esc(e.label)}</b></span>`;
-    $('#wRemove').onclick = () => { if (e.id) { if (!wui.off.includes(e.id)) wui.off.push(e.id); saveWUI(); wRenderShelfList(); } else wExcluded.add(e.key); $('#wresult').innerHTML = ''; closeWin(); wDraw(); toast(`Removed ${e.label} from the wheel`); };
+    $('#wRemove').onclick = () => { if (e.id || e.xkey) { const k = e.id || e.xkey; if (!wui.off.includes(k)) wui.off.push(k); saveWUI(); wRenderShelfList(); } else wExcluded.add(e.key); $('#wresult').innerHTML = ''; closeWin(); wDraw(); toast(`Removed ${e.label} from the wheel`); };
     $('#wCloseWin').onclick = closeWin;
     if ($('#wStart')) $('#wStart').onclick = () => { closeWin(); setStatus(it, 'progress'); closeWheel(); };
     $('#winVeil').classList.remove('hidden');
     confetti(color); fanfare();
     if (navigator.vibrate) try { navigator.vibrate([30, 40, 30]); } catch {}
   }
-  function openWheel() { wExcluded = new Set(); $('#wresult').innerHTML = ''; const ids = new Set(items.map(i => i.id)); wui.on = wui.on.filter(x => ids.has(x)); wui.off = wui.off.filter(x => ids.has(x)); $('#wFind').value = ''; wFillCustom(); wSync(); $('#wveil').classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
+  function openWheel() { wExcluded = new Set(); $('#wresult').innerHTML = ''; const ids = new Set(items.map(i => i.id)); wui.on = wui.on.filter(x => ids.has(x)); wui.off = wui.off.filter(x => ids.has(x) || (x.startsWith('x|') && wui.extra.includes(x.slice(2)))); $('#wFind').value = ''; wFillCustom(); wSync(); $('#wveil').classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
   function closeWheel() { if (wSpinning) return; closeWin(); $('#wveil').classList.add('hidden'); document.body.style.overflow = ''; }
   $('#wheelBtn').addEventListener('click', openWheel);
   $('#wClose').addEventListener('click', closeWheel);
@@ -794,8 +802,19 @@
     saveWUI(); wRenderShelfList(); wDraw();
   });
   $('#wFind').addEventListener('input', wRenderShelfList);
-  $('#wAll').addEventListener('click', () => { if (wSpinning) return; const ids = wListed().map(i => i.id); wui.off = wui.off.filter(x => !ids.includes(x)); saveWUI(); wRenderShelfList(); wDraw(); });
-  $('#wNone').addEventListener('click', () => { if (wSpinning) return; const ids = wListed().map(i => i.id); wui.off = [...new Set([...wui.off, ...ids])]; saveWUI(); wRenderShelfList(); wDraw(); });
+  $('#wItems').addEventListener('click', e => {
+    const d = e.target.closest('[data-delx]'); if (!d) return; e.preventDefault(); if (wSpinning) return;
+    const x = wui.extra[+d.dataset.delx]; wui.extra.splice(+d.dataset.delx, 1); wui.off = wui.off.filter(k => k !== 'x|' + x);
+    saveWUI(); wRenderShelfList(); wDraw();
+  });
+  $('#wExtraF').addEventListener('submit', e => {
+    e.preventDefault(); if (wSpinning) return;
+    const v = $('#wExtra').value.trim(); if (!v) return;
+    if (!wui.extra.includes(v)) wui.extra.push(v); wui.off = wui.off.filter(k => k !== 'x|' + v);
+    $('#wExtra').value = ''; saveWUI(); wRenderShelfList(); wDraw();
+  });
+  $('#wAll').addEventListener('click', () => { if (wSpinning) return; const ids = wListed().map(i => i.id).concat(wui.extra.map(x => 'x|' + x)); wui.off = wui.off.filter(x => !ids.includes(x)); saveWUI(); wRenderShelfList(); wDraw(); });
+  $('#wNone').addEventListener('click', () => { if (wSpinning) return; const ids = wListed().map(i => i.id).concat(wui.extra.map(x => 'x|' + x)); wui.off = [...new Set([...wui.off, ...ids])]; saveWUI(); wRenderShelfList(); wDraw(); });
   function toggleIn(arr, v) { const i = arr.indexOf(v); i >= 0 ? arr.splice(i, 1) : arr.push(v); }
   $('#wStatus').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || wSpinning) return; wChip(wui.statuses, b.dataset.v); });
   $('#wTypes').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || wSpinning) return; wChip(wui.types, b.dataset.v); });
