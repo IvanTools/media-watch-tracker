@@ -132,7 +132,7 @@
   .chips button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
   .wstage { position: relative; width: min(88vw, 420px); aspect-ratio: 1; margin: 6px auto 10px; }
   #wcanvas { width: 100%; height: 100%; display: block; }
-  .wpointer { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0;
+  .wpointer { transition: border-top-color .08s linear; position: absolute; top: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0;
     border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 26px solid var(--fg);
     filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); z-index: 2; }
   #wspin { display: block; margin: 0 auto 10px; font-size: 18px; padding: 12px 34px; border-radius: 999px; }
@@ -142,6 +142,16 @@
   .wrow { display: flex; gap: 8px; align-items: center; }
   .wrow select { flex: 1; }
   #wcount { font-size: 13px; color: var(--dim); text-align: center; margin-bottom: 4px; }
+  #confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 14; }
+  #winVeil { position: fixed; inset: 0; z-index: 13; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 20px; }
+  #winBox { background: var(--card); border: 2px solid var(--winc, var(--accent)); border-radius: 20px; padding: 22px 20px 18px; width: 100%; max-width: 380px; text-align: center;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5); animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  #winBox .wh { font-size: 14px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--dim); margin-bottom: 8px; }
+  #winBox .wn { font-size: 26px; font-weight: 800; margin-bottom: 4px; word-break: break-word; color: var(--winc, var(--fg)); }
+  #winBox .wm { font-size: 13px; color: var(--dim); margin-bottom: 16px; }
+  #winBox .acts2 { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  #winBox .acts2 button { flex: 1; min-width: 90px; }
 </style>
 </head>
 <body>
@@ -268,6 +278,13 @@
     <div id="wresult"></div>
   </div>
 </div>
+<div id="winVeil" class="hidden"><div id="winBox">
+  <div class="wh">🎉 We have a winner!</div>
+  <div class="wn" id="winName"></div>
+  <div class="wm" id="winMeta"></div>
+  <div class="acts2" id="winActs"></div>
+</div></div>
+<canvas id="confetti" class="hidden"></canvas>
 <div id="toast" class="hidden"><span id="toastMsg"></span><button id="toastUndo">Undo</button></div>
 
 <script>
@@ -590,7 +607,7 @@
       x.strokeStyle = '#2b303c'; x.lineWidth = 6; x.stroke();
       x.fillStyle = '#9a9fae'; x.font = '600 34px -apple-system, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
       x.fillText(wui.mode === 'shelf' ? 'Nothing matches these filters' : 'Add some options below', 0, 0);
-      x.restore(); return;
+      $('.wpointer').style.borderTopColor = ''; x.restore(); return;
     }
     x.rotate(wAngle);
     const seg = Math.PI * 2 / n;
@@ -598,7 +615,7 @@
     for (let k = 0; k < n; k++) {
       const a0 = -Math.PI / 2 + k * seg;
       x.beginPath(); x.moveTo(0, 0); x.arc(0, 0, R, a0, a0 + seg); x.closePath();
-      x.fillStyle = WCOLORS[(n > 1 && k === n - 1 && n % WCOLORS.length === 1) ? 3 : k % WCOLORS.length]; x.fill();
+      x.fillStyle = wColor(k, n); x.fill();
       x.strokeStyle = 'rgba(16,18,24,.6)'; x.lineWidth = 3; x.stroke();
       x.save(); x.rotate(a0 + seg / 2);
       x.fillStyle = '#fff'; x.font = `700 ${fs}px -apple-system, BlinkMacSystemFont, sans-serif`; x.textAlign = 'right'; x.textBaseline = 'middle';
@@ -611,7 +628,36 @@
     x.beginPath(); x.arc(0, 0, 46, 0, Math.PI * 2); x.fillStyle = '#101218'; x.fill();
     x.strokeStyle = '#ececf1'; x.lineWidth = 5; x.stroke();
     x.restore();
+    $('.wpointer').style.borderTopColor = wColor(wUnderPointer(), n);
   }
+  function wColor(k, n) { return WCOLORS[(n > 1 && k === n - 1 && n % WCOLORS.length === 1) ? 3 : k % WCOLORS.length]; }
+  function wUnderPointer() {
+    const n = wEntries.length; if (!n) return 0;
+    const p = ((-wAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    return Math.min(n - 1, Math.floor(p / (Math.PI * 2 / n)));
+  }
+  function confetti(color) {
+    const c = $('#confetti'), x = c.getContext('2d'); if (!x) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1), W = innerWidth, H = innerHeight;
+    c.width = W * dpr; c.height = H * dpr; x.scale(dpr, dpr); c.classList.remove('hidden');
+    const cols = [color, ...WCOLORS, '#ffffff'];
+    const ps = Array.from({ length: 160 }, () => ({
+      x: W / 2 + (Math.random() - .5) * 60, y: H * .38, vx: (Math.random() - .5) * 14, vy: -Math.random() * 14 - 4,
+      r: 4 + Math.random() * 5, a: Math.random() * 6, va: (Math.random() - .5) * .4, c: cols[Math.floor(Math.random() * cols.length)], s: Math.random() < .5 }));
+    const t0 = performance.now();
+    (function f(now) {
+      const t = now - t0; x.clearRect(0, 0, W, H);
+      for (const p of ps) {
+        p.vy += .32; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.a += p.va;
+        x.save(); x.translate(p.x, p.y); x.rotate(p.a); x.globalAlpha = Math.max(0, 1 - t / 2600); x.fillStyle = p.c;
+        if (p.s) x.fillRect(-p.r, -p.r / 2, p.r * 2, p.r); else { x.beginPath(); x.arc(0, 0, p.r / 1.4, 0, Math.PI * 2); x.fill(); }
+        x.restore();
+      }
+      if (t < 2600) requestAnimationFrame(f); else { x.clearRect(0, 0, W, H); c.classList.add('hidden'); }
+    })(t0);
+  }
+  function closeWin() { $('#winVeil').classList.add('hidden'); }
+  $('#winVeil').addEventListener('click', e => { if (e.target.id === 'winVeil') closeWin(); });
   function wSpin() {
     if (wSpinning || !wEntries.length) return;
     const n = wEntries.length, seg = Math.PI * 2 / n;
@@ -630,22 +676,29 @@
       const t = Math.min(1, (now - t0) / dur);
       wAngle = start + total * ease(t); wDraw();
       if (t < 1) return requestAnimationFrame(step);
-      wSpinning = false; wDraw(); wShow(wEntries[win]);
+      wSpinning = false; wDraw(); wShow(wEntries[win], win);
     })(t0);
   }
-  function wShow(e) {
+  function wShow(e, k) {
     if (!e) return;
-    let acts = `<button type="button" id="wAgain">Spin again</button><button type="button" id="wRemove">Remove from wheel</button>`;
+    const color = wColor(k, wEntries.length);
     const it = e.id && items.find(i => i.id === e.id);
-    if (it && it.status === 'want') acts = `<button type="button" class="primary" id="wStart">Start it</button>` + acts;
-    $('#wresult').innerHTML = `<div class="big">🎉 ${esc(e.label)}</div><div class="acts2">${acts}</div>`;
-    $('#wAgain').onclick = wSpin;
-    $('#wRemove').onclick = () => { wExcluded.add(e.id || e.key); $('#wresult').innerHTML = ''; wDraw(); };
-    if ($('#wStart')) $('#wStart').onclick = () => { setStatus(it, 'progress'); closeWheel(); };
-    if (navigator.vibrate) try { navigator.vibrate(30); } catch {}
+    $('#winBox').style.setProperty('--winc', color);
+    $('#winName').textContent = e.label;
+    $('#winMeta').textContent = it ? [it.type === 'other' && it.kind ? it.kind : TYPES[it.type], STATUS[it.status]].join(' · ') : '';
+    let acts = `<button type="button" class="danger" id="wRemove">Remove</button><button type="button" id="wCloseWin">Close</button>`;
+    if (it && it.status === 'want') acts += `<button type="button" class="primary" id="wStart">Start it</button>`;
+    $('#winActs').innerHTML = acts;
+    $('#wresult').innerHTML = `<span style="color:var(--dim);font-size:14px">Last pick: <b style="color:${color}">${esc(e.label)}</b></span>`;
+    $('#wRemove').onclick = () => { wExcluded.add(e.id || e.key); $('#wresult').innerHTML = ''; closeWin(); wDraw(); toast(`Removed ${e.label} from the wheel`); };
+    $('#wCloseWin').onclick = closeWin;
+    if ($('#wStart')) $('#wStart').onclick = () => { closeWin(); setStatus(it, 'progress'); closeWheel(); };
+    $('#winVeil').classList.remove('hidden');
+    confetti(color);
+    if (navigator.vibrate) try { navigator.vibrate([30, 40, 30]); } catch {}
   }
   function openWheel() { wExcluded = new Set(); $('#wresult').innerHTML = ''; wFillCustom(); wSync(); $('#wveil').classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
-  function closeWheel() { if (wSpinning) return; $('#wveil').classList.add('hidden'); document.body.style.overflow = ''; }
+  function closeWheel() { if (wSpinning) return; closeWin(); $('#wveil').classList.add('hidden'); document.body.style.overflow = ''; }
   $('#wheelBtn').addEventListener('click', openWheel);
   $('#wClose').addEventListener('click', closeWheel);
   $('#wspin').addEventListener('click', wSpin);
